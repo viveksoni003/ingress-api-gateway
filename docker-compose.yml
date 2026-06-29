@@ -1,0 +1,71 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: gateway
+      POSTGRES_PASSWORD: gateway
+      POSTGRES_DB: gateway
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Migrations are auto-applied on first init of a fresh database.
+      - ./migrations/0001_init.up.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gateway -d gateway"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  gateway:
+    build:
+      context: .
+      args:
+        VERSION: compose
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      ENV: dev
+      HTTP_PORT: "8080"
+      LOG_LEVEL: info
+      LOG_FORMAT: json
+      REDIS_ADDR: redis:6379
+      DATABASE_URL: postgres://gateway:gateway@postgres:5432/gateway?sslmode=disable
+      WORKER_COUNT: "8"
+      JOB_MAX_RETRIES: "5"
+      GLOBAL_RATE_RPS: "2000"
+      GLOBAL_RATE_BURST: "4000"
+      ROUTE_RATE_RPS: "50"
+      ROUTE_RATE_BURST: "100"
+      QUEUE_MAX_DEPTH: "10000"
+      JWT_SECRET: dev-secret-change-me
+      PAYMENT_HMAC_SECRET: whsec_dev_secret_change_me
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - gateway
+
+volumes:
+  pgdata:

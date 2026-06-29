@@ -1,0 +1,341 @@
+openapi: 3.0.3
+info:
+  title: Ingress API Gateway
+  description: >
+    High-throughput API gateway for an event-management platform. Public
+    endpoints validate, rate-limit and enqueue work (returning 202 Accepted);
+    background workers process jobs asynchronously from a Redis priority queue.
+  version: 1.0.0
+  contact:
+    name: viveksoni003
+servers:
+  - url: http://localhost:8080
+    description: Local
+tags:
+  - name: gateway
+    description: Public traffic ingestion (async, returns 202)
+  - name: admin
+    description: Operational job management (JWT required)
+  - name: health
+    description: Liveness / readiness / metrics
+
+paths:
+  /api/v1/gateway/registrations:
+    post:
+      tags: [gateway]
+      summary: Enqueue an attendee registration
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegistrationPayload' }
+      responses:
+        '202': { $ref: '#/components/responses/Accepted' }
+        '200': { $ref: '#/components/responses/AcceptedDuplicate' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+  /api/v1/gateway/payment-webhooks:
+    post:
+      tags: [gateway]
+      summary: Enqueue a payment webhook (HMAC-SHA256 signed)
+      description: Requires a valid `X-Signature` (hex HMAC-SHA256 of the raw body).
+      parameters:
+        - in: header
+          name: X-Signature
+          required: true
+          schema: { type: string }
+          description: Hex HMAC-SHA256 of the raw request body (optional `sha256=` prefix).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PaymentWebhookPayload' }
+      responses:
+        '202': { $ref: '#/components/responses/Accepted' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/InvalidSignature' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+  /api/v1/gateway/qr-scans:
+    post:
+      tags: [gateway]
+      summary: Enqueue a QR scan
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/QRScanPayload' }
+      responses:
+        '202': { $ref: '#/components/responses/Accepted' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+  /api/v1/gateway/notifications:
+    post:
+      tags: [gateway]
+      summary: Enqueue a notification
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NotificationPayload' }
+      responses:
+        '202': { $ref: '#/components/responses/Accepted' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+  /api/v1/admin/jobs:
+    get:
+      tags: [admin]
+      summary: List jobs
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: query, name: status, schema: { $ref: '#/components/schemas/JobStatus' } }
+        - { in: query, name: job_type, schema: { $ref: '#/components/schemas/JobType' } }
+        - { in: query, name: limit, schema: { type: integer, default: 50 } }
+        - { in: query, name: offset, schema: { type: integer, default: 0 } }
+      responses:
+        '200':
+          description: A page of jobs
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/v1/admin/jobs/stats:
+    get:
+      tags: [admin]
+      summary: Aggregate job statistics and live queue depths
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Stats
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobStats' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/v1/admin/jobs/{id}:
+    get:
+      tags: [admin]
+      summary: Get a job by id
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: The job
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Job' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/admin/jobs/{id}/retry:
+    post:
+      tags: [admin]
+      summary: Re-queue a FAILED or DEAD_LETTER job
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: The re-queued job
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Job' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/v1/admin/dead-letter-jobs:
+    get:
+      tags: [admin]
+      summary: List dead-lettered jobs
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: query, name: limit, schema: { type: integer, default: 50 } }
+        - { in: query, name: offset, schema: { type: integer, default: 0 } }
+      responses:
+        '200':
+          description: A page of dead-lettered jobs
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /health:
+    get:
+      tags: [health]
+      summary: Process health + uptime
+      responses: { '200': { description: OK } }
+  /live:
+    get:
+      tags: [health]
+      summary: Liveness probe
+      responses: { '200': { description: Alive } }
+  /ready:
+    get:
+      tags: [health]
+      summary: Readiness probe (checks Redis + Postgres)
+      responses:
+        '200': { description: Ready }
+        '503': { description: Not ready }
+  /metrics:
+    get:
+      tags: [health]
+      summary: Prometheus metrics
+      responses: { '200': { description: Prometheus exposition format } }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    IdempotencyKey:
+      in: header
+      name: Idempotency-Key
+      required: false
+      schema: { type: string }
+      description: Optional client-supplied idempotency key. If omitted, a key is derived from the request body hash.
+
+  responses:
+    Accepted:
+      description: Job accepted and queued
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/AcceptResponse' }
+    AcceptedDuplicate:
+      description: Idempotent duplicate; the original job id is returned
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/AcceptResponse' }
+    BadRequest:
+      description: Validation failed
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Unauthorized:
+      description: Missing or invalid JWT
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    InvalidSignature:
+      description: HMAC signature verification failed
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    NotFound:
+      description: Resource not found
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Conflict:
+      description: Job is not in a retryable state
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    RateLimited:
+      description: Rate limit exceeded
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Unavailable:
+      description: Queue saturated (backpressure / load shedding)
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+
+  schemas:
+    JobType:
+      type: string
+      enum: [REGISTRATION, PAYMENT_WEBHOOK, QR_SCAN, NOTIFICATION]
+    JobStatus:
+      type: string
+      enum: [QUEUED, PROCESSING, SUCCESS, FAILED, DEAD_LETTER]
+    Priority:
+      type: string
+      enum: [LOW, MEDIUM, HIGH]
+    AcceptResponse:
+      type: object
+      properties:
+        job_id: { type: string }
+        status: { $ref: '#/components/schemas/JobStatus' }
+        job_type: { $ref: '#/components/schemas/JobType' }
+        duplicate: { type: boolean }
+        trace_id: { type: string }
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+        detail: { type: string }
+        request_id: { type: string }
+        trace_id: { type: string }
+    RegistrationPayload:
+      type: object
+      required: [event_id, attendee_name, email]
+      properties:
+        event_id: { type: string }
+        attendee_name: { type: string }
+        email: { type: string, format: email }
+        phone: { type: string }
+        ticket_type: { type: string }
+    PaymentWebhookPayload:
+      type: object
+      required: [gateway_order_id, payment_status]
+      properties:
+        gateway_order_id: { type: string }
+        payment_id: { type: string }
+        payment_status: { type: string, enum: [AUTHORIZED, CAPTURED, FAILED, REFUNDED, PENDING] }
+        amount_cents: { type: integer, format: int64 }
+        currency: { type: string }
+    QRScanPayload:
+      type: object
+      required: [qr_code]
+      properties:
+        qr_code: { type: string }
+        event_id: { type: string }
+        gate_id: { type: string }
+        scanned_by: { type: string }
+    NotificationPayload:
+      type: object
+      required: [channel, recipient]
+      properties:
+        channel: { type: string, enum: [EMAIL, SMS, PUSH] }
+        recipient: { type: string }
+        template: { type: string }
+        subject: { type: string }
+        body: { type: string }
+        event_id: { type: string }
+    Job:
+      type: object
+      properties:
+        id: { type: string }
+        job_type: { $ref: '#/components/schemas/JobType' }
+        payload: { type: object }
+        status: { $ref: '#/components/schemas/JobStatus' }
+        retry_count: { type: integer }
+        max_retries: { type: integer }
+        priority: { $ref: '#/components/schemas/Priority' }
+        idempotency_key: { type: string }
+        trace_id: { type: string }
+        error_message: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        processed_at: { type: string, format: date-time, nullable: true }
+    JobList:
+      type: object
+      properties:
+        count: { type: integer }
+        jobs:
+          type: array
+          items: { $ref: '#/components/schemas/Job' }
+    JobStats:
+      type: object
+      properties:
+        by_status: { type: object, additionalProperties: { type: integer } }
+        by_type: { type: object, additionalProperties: { type: integer } }
+        total: { type: integer }
+        dead_letter: { type: integer }
+        queue_depths: { type: object, additionalProperties: { type: integer } }
+        generated_at: { type: string, format: date-time }

@@ -1,0 +1,23 @@
+# Binaries
+bin/
+*.exe
+*.out
+gateway
+loadtester
+admin-token
+
+# Test / coverage
+coverage.out
+coverage.html
+
+# Env / secrets
+.env
+*.local
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Vendor (we use modules)
+vendor/

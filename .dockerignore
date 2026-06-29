@@ -1,0 +1,11 @@
+.git
+.gitignore
+bin/
+coverage.out
+coverage.html
+*.md
+!README.md
+.env
+.idea/
+.vscode/
+.DS_Store
