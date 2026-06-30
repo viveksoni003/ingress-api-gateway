@@ -362,13 +362,6 @@ See [`deploy/aws/README.md`](deploy/aws/README.md) for a full walkthrough coveri
 
 ---
 
-## Resume bullets
 
-- Built a **high-throughput API gateway in Go** that ingests event-platform traffic and processes it asynchronously via a **goroutine + channel worker pool** draining a **Redis priority queue**, sustaining **thousands of requests/second** with p99 latency in the tens of milliseconds.
-- Implemented production resilience patterns end-to-end: **token-bucket rate limiting** (global + per-client), **queue-depth backpressure / load shedding**, **idempotency keys**, **exponential-backoff retries**, a **dead-letter queue**, and **context-based graceful shutdown**.
-- Designed a **clean/hexagonal architecture** (domain ports + adapters) with **HMAC-SHA256 webhook verification**, **JWT-secured admin APIs**, **Prometheus metrics**, **structured Zap logging with trace correlation**, **PostgreSQL** persistence, and **Docker Compose** + **OpenAPI** docs.
-- Achieved high confidence with **unit + integration tests** (rate limiter, idempotency, queue ordering, retry/dead-letter, graceful shutdown) runnable without external services via `miniredis`, plus a built-in **load-testing tool** reporting p50/p95/p99.
-
----
 
 *Built to showcase backend/concurrency engineering for fintech-scale systems (Paytm, PhonePe, Razorpay, CRED).*
